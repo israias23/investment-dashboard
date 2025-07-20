@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Investment Dashboard</title>
+  <link href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%);
+      min-height: 100vh;
+      color: #e0e0e0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 8px 32px rgba(0, 229, 255, 0.2);
+    }
+    .btn-primary {
+      background: #00e5ff;
+      color: #0d1b2a;
+      transition: all 0.3s ease;
+    }
+    .btn-primary:hover {
+      background: #00b7d1;
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+    }
+    .btn-secondary {
+      background: #ff2e63;
+      color: #ffffff;
+      transition: all 0.3s ease;
+    }
+    .btn-secondary:hover {
+      background: #d81b60;
+      box-shadow: 0 0 15px rgba(255, 46, 99, 0.5);
+    }
+    .btn-danger {
+      background: #dc2626;
+      color: #ffffff;
+      transition: all 0.3s ease;
+    }
+    .btn-danger:hover {
+      background: #b91c1c;
+      box-shadow: 0 0 15px rgba(220, 38, 38, 0.5);
+    }
+    .modal {
+      animation: slideIn 0.3s ease-in-out;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(5px);
+      z-index: 50;
+    }
+    @keyframes slideIn {
+      from { transform: translateY(-20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    input, select {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #e0e0e0;
+      transition: all 0.3s ease;
+    }
+    input:focus, select:focus {
+      border-color: #00e5ff;
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+      transform: scale(1.02);
+    }
+    .error {
+      color: #ff2e63;
+      font-size: 0.875rem;
+    }
+    .toast {
+      animation: fadeInOut 3s ease-in-out forwards;
+      backdrop-filter: blur(5px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translateY(20px); }
+      10% { opacity: 1; transform: translateY(0); }
+      90% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(20px); }
+    }
+    .spinner {
+      border: 4px solid rgba(255, 255, 255, 0.1);
+      border-top: 4px solid #00e5ff;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    th, td {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    th {
+      cursor: pointer;
+    }
+    th:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    label {
+      color: #00e5ff;
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const PortfolioCard = React.memo(({ title, children }) => (
+      <div className="card p-6 rounded-xl mb-6">
+        <h2 className="text-2xl font-semibold text-white mb-4">{title}</h2>
+        {children}
+      </div>
+    ));
+
+    function App() {
+      const [data, setData] = React.useState([]);
+      const [loading, setLoading] = React.useState(true);
+      const [form, setForm] = React.useState({
+        assetType: 'stock',
+        ticker: '',
+        units: 0,
+        unitPrice: 0,
+        annualYield: 0
+      });
+      const [formErrors, setFormErrors] = React.useState({});
+      const [editingIndex, setEditingIndex] = React.useState(null);
+      const [showModal, setShowModal] = React.useState(false);
+      const [goal, setGoal] = React.useState({ type: 'monthly', amount: 1000 });
+      const [currency, setCurrency] = React.useState('BRL');
+      const [forecastYears, setForecastYears] = React.useState(5);
+      const [growthRate, setGrowthRate] = React.useState(5);
+      const [sortConfig, setSortConfig] = React.useState({ key: null, direction: 'asc' });
+      const [toast, setToast] = React.useState(null);
+
+      const exchangeRates = React.useMemo(() => ({
+        BRL: 1,
+        USD: 0.18,
+        EUR: 0.15
+      }), []);
+
+      const csvData = `
+Investimento,Cotas,Valor da cota,DY anual,Valor investido,Magic Number,Renda Mensal,Renda Anual
+CXSE3,0,14.28,0.0735,0,163.2653061,0,0
+BBAS3,0,28.02,0.0908,0,132.1585903,0,0
+MXRF11,0,10,0.1232,0,97.4025974,0,0
+`;
+
+      React.useEffect(() => {
+        const savedData = localStorage.getItem('portfolio');
+        const savedGoal = localStorage.getItem('goal');
+        const savedCurrency = localStorage.getItem('currency');
+        if (savedData) {
+          setData(JSON.parse(savedData));
+          if (savedGoal) setGoal(JSON.parse(savedGoal));
+          if (savedCurrency) setCurrency(savedCurrency);
+          setLoading(false);
+          return;
+        }
+
+        Papa.parse(csvData, {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: header => header.trim().replace(/^"|"$/g, ''),
+          transform: (value, header) => {
+            let cleaned = value.trim().replace(/^"|"$/g, '');
+            if (header === 'Cotas' || header === 'Valor da cota' || header === 'DY anual' || header === 'Valor investido') {
+              return isNaN(parseFloat(cleaned)) ? 0 : parseFloat(cleaned);
+            }
+            return cleaned;
+          },
+          complete: (results) => {
+            const cleanedData = results.data
+              .filter(row => row['Investimento'] && row['Investimento'] !== '')
+              .map(row => ({
+                ticker: row['Investimento'],
+                units: row['Cotas'] || 0,
+                unitPrice: row['Valor da cota'] || 0,
+                annualYield: row['DY anual'] || 0,
+                assetType: row['Investimento'].includes('11') ? 'fii' : 'stock'
+              }));
+            setData(cleanedData);
+            setLoading(false);
+          },
+          error: (err) => {
+            console.error(err);
+            setLoading(false);
+            setToast({ type: 'error', message: 'Erro ao carregar dados do portfólio.' });
+          }
+        });
+      }, []);
+
+      React.useEffect(() => {
+        localStorage.setItem('portfolio', JSON.stringify(data));
+        localStorage.setItem('goal', JSON.stringify(goal));
+        localStorage.setItem('currency', currency);
+      }, [data, goal, currency]);
+
+      React.useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (e.key === 'Escape' && showModal) {
+            setShowModal(false);
+            setFormErrors({});
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [showModal]);
+
+      React.useEffect(() => {
+        if (toast) {
+          const timer = setTimeout(() => setToast(null), 3000);
+          return () => clearTimeout(timer);
+        }
+      }, [toast]);
+
+      const validateForm = React.useCallback(() => {
+        const errors = {};
+        if (!form.ticker.trim()) errors.ticker = 'Ticker é obrigatório';
+        if (form.units < 0) errors.units = 'Quantidade não pode ser negativa';
+        if (form.unitPrice < 0) errors.unitPrice = 'Preço não pode ser negativo';
+        if (form.annualYield < 0) errors.annualYield = 'Rendimento não pode ser negativo';
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+      }, [form]);
+
+      const handleInputChange = React.useCallback((e) => {
+        const { name, value } = e.target;
+        setForm(prev => ({
+          ...prev,
+          [name]: name === 'units' || name === 'unitPrice' || name === 'annualYield' ? parseFloat(value) || 0 : value
+        }));
+        setFormErrors(prev => ({ ...prev, [name]: null }));
+      }, []);
+
+      const handleGoalChange = React.useCallback((e) => {
+        const { name, value } = e.target;
+        setGoal(prev => ({
+          ...prev,
+          [name]: name === 'amount' ? parseFloat(value) || 0 : value
+        }));
+      }, []);
+
+      const handleForecastChange = React.useCallback((e) => {
+        const { name, value } = e.target;
+        if (name === 'forecastYears') {
+          setForecastYears(parseFloat(value) || 5);
+        } else if (name === 'growthRate') {
+          setGrowthRate(parseFloat(value) || 5);
+        }
+      }, []);
+
+      const handleAddOrUpdateInvestment = React.useCallback(() => {
+        if (!validateForm()) {
+          setToast({ type: 'error', message: 'Corrija os erros no formulário.' });
+          return;
+        }
+        if (editingIndex !== null) {
+          setData(prev => {
+            const newData = [...prev];
+            newData[editingIndex] = { ...form };
+            return newData;
+          });
+          setToast({ type: 'success', message: 'Investimento atualizado com sucesso!' });
+          setEditingIndex(null);
+        } else {
+          setData(prev => [...prev, { ...form }]);
+          setToast({ type: 'success', message: 'Investimento adicionado com sucesso!' });
+        }
+        setForm({ assetType: 'stock', ticker: '', units: 0, unitPrice: 0, annualYield: 0 });
+        setShowModal(false);
+        setFormErrors({});
+      }, [form, editingIndex, validateForm]);
+
+      const handleEdit = React.useCallback((index) => {
+        setForm(data[index]);
+        setEditingIndex(index);
+        setShowModal(true);
+      }, [data]);
+
+      const handleDelete = React.useCallback((index) => {
+        if (window.confirm('Tem certeza que deseja excluir este investimento?')) {
+          setData(prev => prev.filter((_, i) => i !== index));
+          setToast({ type: 'success', message: 'Investimento excluído com sucesso!' });
+        }
+      }, []);
+
+      const handleClearPortfolio = React.useCallback(() => {
+        if (window.confirm('Tem certeza que deseja limpar todo o portfólio?')) {
+          setData([]);
+          setToast({ type: 'success', message: 'Portfólio limpo com sucesso!' });
+        }
+      }, []);
+
+      const handleExport = React.useCallback(() => {
+        const csv = Papa.unparse(data.map(item => ({
+          Tipo: item.assetType.toUpperCase(),
+          Ticker: item.ticker,
+          Quantidade: item.units,
+          'Preço Unitário': item.unitPrice,
+          'Rendimento Anual (%)': item.annualYield,
+          'Valor Total': item.units * item.unitPrice,
+          'Renda Mensal': item.units * item.unitPrice * (item.annualYield / 100 / 12)
+        })));
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'portfolio_export.csv');
+        link.click();
+        URL.revokeObjectURL(url);
+        setToast({ type: 'success', message: 'Portfólio exportado com sucesso!' });
+      }, [data]);
+
+      const handleSort = React.useCallback((key) => {
+        setSortConfig(prev => {
+          const direction = prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
+          const sortedData = [...data].sort((a, b) => {
+            let aValue = a[key], bValue = b[key];
+            if (key === 'totalValue') {
+              aValue = a.units * a.unitPrice;
+              bValue = b.units * b.unitPrice;
+            } else if (key === 'monthlyIncome') {
+              aValue = a.units * a.unitPrice * (a.annualYield / 100 / 12);
+              bValue = b.units * b.unitPrice * (b.annualYield / 100 / 12);
+            }
+            if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+            if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+            return 0;
+          });
+          setData(sortedData);
+          return { key, direction };
+        });
+      }, [data]);
+
+      const totalInvested = React.useMemo(() => 
+        data.reduce((sum, item) => sum + (item.units * item.unitPrice), 0), [data]);
+
+      const monthlyIncome = React.useMemo(() => 
+        data.reduce((sum, item) => {
+          const monthlyYield = item.annualYield / 100 / 12;
+          return sum + (item.units * item.unitPrice * monthlyYield);
+        }, 0), [data]);
+
+      const annualIncome = monthlyIncome * 12;
+
+      const forecastedIncome = React.useMemo(() => 
+        annualIncome * Math.pow(1 + (growthRate / 100), forecastYears), 
+        [annualIncome, growthRate, forecastYears]);
+
+      const goalProgress = React.useMemo(() => 
+        goal.type === 'monthly' 
+          ? (monthlyIncome / goal.amount) * 100 
+          : (annualIncome / goal.amount) * 100, 
+        [monthlyIncome, annualIncome, goal]);
+
+      const portfolioHealth = React.useMemo(() => {
+        const assetTypes = data.reduce((acc, item) => {
+          acc[item.assetType] = (acc[item.assetType] || 0) + (item.units * item.unitPrice);
+          return acc;
+        }, {});
+        const total = Object.values(assetTypes).reduce((sum, val) => sum + val, 0);
+        const weights = Object.values(assetTypes).map(val => val / total);
+        const diversificationScore = weights.length > 0 
+          ? (1 - weights.reduce((sum, w) => sum + w * w, 0)) * 100 
+          : 0;
+        return Math.min(diversificationScore, 100).toFixed(1);
+      }, [data]);
+
+      const formatCurrency = React.useCallback((value) => {
+        const converted = value * exchangeRates[currency];
+        return converted.toLocaleString(
+          currency === 'BRL' ? 'pt-BR' : currency === 'USD' ? 'en-US' : 'de-DE',
+          { style: 'currency', currency }
+        );
+      }, [currency, exchangeRates]);
+
+      const portfolioChartData = React.useMemo(() => 
+        data.map(item => ({
+          name: item.ticker,
+          value: item.units * item.unitPrice
+        })), [data]);
+
+      const assetTypeChartData = React.useMemo(() => [
+        { name: 'Ações', value: data.filter(item => item.assetType === 'stock').reduce((sum, item) => sum + (item.units * item.unitPrice), 0) },
+        { name: 'FIIs', value: data.filter(item => item.assetType === 'fii').reduce((sum, item) => sum + (item.units * item.unitPrice), 0) },
+        { name: 'Cripto', value: data.filter(item => item.assetType === 'crypto').reduce((sum, item) => sum + (item.units * item.unitPrice), 0) },
+        { name: 'Poupança', value: data.filter(item => item.assetType === 'savings').reduce((sum, item) => sum + (item.units * item.unitPrice), 0) },
+        { name: 'Títulos', value: data.filter(item => item.assetType === 'bond').reduce((sum, item) => sum + (item.units * item.unitPrice), 0) },
+        { name: 'ETFs', value: data.filter(item => item.assetType === 'etf').reduce((sum, item) => sum + (item.units * item.unitPrice), 0) }
+      ].filter(item => item.value > 0), [data]);
+
+      if (loading) {
+        return (
+          <div className="flex justify-center items-center h-screen">
+            <div className="spinner"></div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="container mx-auto p-6 max-w-7xl">
+          <h1 className="text-4xl font-bold text-center mb-8 text-white tracking-tight">Dashboard de Investimentos</h1>
+
+          {toast && (
+            <div className={`fixed bottom-4 right-4 p-4 rounded-lg text-white toast ${toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>
+              {toast.message}
+            </div>
+          )}
+
+          <div className="flex justify-end mb-6">
+            <div className="flex flex-col">
+              <label htmlFor="currency-select" className="mb-1">Moeda</label>
+              <select
+                id="currency-select"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="p-2 rounded-lg bg-gray-800 text-white border-none focus:ring-2 focus:ring-cyan-500"
+                aria-label="Selecionar moeda"
+              >
+                <option value="BRL">BRL</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+              </select>
+            </div>
+          </div>
+
+          {showModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center modal z-50" aria-modal="true" role="dialog">
+              <div className="card p-8 rounded-xl w-full max-w-md" role="document" aria-labelledby="modal-title">
+                <h2 id="modal-title" className="text-2xl font-semibold mb-6 text-white">
+                  {editingIndex !== null ? 'Editar Investimento' : 'Adicionar Investimento'}
+                </h2>
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label htmlFor="assetType" className="mb-1">Tipo de Ativo</label>
+                    <select
+                      id="assetType"
+                      name="assetType"
+                      value={form.assetType}
+                      onChange={handleInputChange}
+                      className="p-3 rounded-lg w-full focus:ring-2 focus:ring-cyan-500"
+                      aria-label="Selecionar tipo de ativo"
+                    >
+                      <option value="stock">Ação</option>
+                      <option value="fii">FII</option>
+                      <option value="crypto">Criptomoeda</option>
+                      <option value="savings">Poupança</option>
+                      <option value="bond">Título</option>
+                      <option value="etf">ETF</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="ticker" className="mb-1">Ticker</label>
+                    <input
+                      id="ticker"
+                      name="ticker"
+                      value={form.ticker}
+                      onChange={handleInputChange}
+                      placeholder="Digite o ticker (ex.: CXSE3)"
+                      className="p-3 rounded-lg w-full"
+                      aria-label="Ticker do investimento"
+                    />
+                    {formErrors.ticker && <p className="error mt-1">{formErrors.ticker}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="units" className="mb-1">Quantidade de Unidades</label>
+                    <input
+                      id="units"
+                      name="units"
+                      type="number"
+                      step="0.0001"
+                      value={form.units}
+                      onChange={handleInputChange}
+                      placeholder="Digite a quantidade (ex.: 100)"
+                      className="p-3 rounded-lg w-full"
+                      aria-label="Quantidade de unidades"
+                    />
+                    {formErrors.units && <p className="error mt-1">{formErrors.units}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="unitPrice" className="mb-1">Preço Unitário ({currency})</label>
+                    <input
+                      id="unitPrice"
+                      name="unitPrice"
+                      type="number"
+                      step="0.01"
+                      value={form.unitPrice}
+                      onChange={handleInputChange}
+                      placeholder={`Digite o preço unitário (ex.: 14.28)`}
+                      className="p-3 rounded-lg w-full"
+                      aria-label="Preço unitário"
+                    />
+                    {formErrors.unitPrice && <p className="error mt-1">{formErrors.unitPrice}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="annualYield" className="mb-1">Rendimento Anual (%)</label>
+                    <input
+                      id="annualYield"
+                      name="annualYield"
+                      type="number"
+                      step="0.0001"
+                      value={form.annualYield}
+                      onChange={handleInputChange}
+                      placeholder="Digite o rendimento anual (ex.: 7.35)"
+                      className="p-3 rounded-lg w-full"
+                      aria-label="Rendimento anual percentual"
+                    />
+                    {formErrors.annualYield && <p className="error mt-1">{formErrors.annualYield}</p>}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-4 mt-6">
+                  <button
+                    onClick={() => {
+                      setShowModal(false);
+                      setFormErrors({});
+                    }}
+                    className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+                    aria-label="Cancelar"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleAddOrUpdateInvestment}
+                    className="px-4 py-2 btn-primary rounded-lg font-medium"
+                    aria-label={editingIndex !== null ? 'Atualizar investimento' : 'Adicionar investimento'}
+                  >
+                    {editingIndex !== null ? 'Atualizar' : 'Adicionar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-between mb-6">
+            <button
+              onClick={() => {
+                setForm({ assetType: 'stock', ticker: '', units: 0, unitPrice: 0, annualYield: 0 });
+                setEditingIndex(null);
+                setShowModal(true);
+              }}
+              className="px-6 py-3 btn-primary rounded-lg text-lg font-medium"
+              aria-label="Adicionar novo investimento"
+            >
+              + Novo Investimento
+            </button>
+            <div className="flex gap-4">
+              <button
+                onClick={handleExport}
+                className="px-6 py-3 btn-secondary rounded-lg text-lg font-medium"
+                aria-label="Exportar portfólio"
+              >
+                Exportar Portfólio
+              </button>
+              <button
+                onClick={handleClearPortfolio}
+                className="px-6 py-3 btn-danger rounded-lg text-lg font-medium"
+                aria-label="Limpar portfólio"
+              >
+                Limpar Portfólio
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <PortfolioCard title="Total Investido">
+              <p className="text-3xl font-bold text-white">{formatCurrency(totalInvested)}</p>
+            </PortfolioCard>
+            <PortfolioCard title="Renda Mensal">
+              <p className="text-3xl font-bold text-white">{formatCurrency(monthlyIncome)}</p>
+            </PortfolioCard>
+            <PortfolioCard title="Renda Anual">
+              <p className="text-3xl font-bold text-white">{formatCurrency(annualIncome)}</p>
+            </PortfolioCard>
+          </div>
+
+          <PortfolioCard title="Meta de Investimento">
+            <div className="flex gap-4 mb-4">
+              <div className="flex flex-col w-1/3">
+                <label htmlFor="goal-type" className="mb-1">Tipo de Meta</label>
+                <select
+                  id="goal-type"
+                  name="type"
+                  value={goal.type}
+                  onChange={handleGoalChange}
+                  className="p-3 rounded-lg"
+                  aria-label="Selecionar tipo de meta"
+                >
+                  <option value="monthly">Renda Mensal</option>
+                  <option value="annual">Renda Anual</option>
+                </select>
+              </div>
+              <div className="flex flex-col w-2/3">
+                <label htmlFor="goal-amount" className="mb-1">Valor da Meta ({currency})</label>
+                <input
+                  id="goal-amount"
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  value={goal.amount}
+                  onChange={handleGoalChange}
+                  placeholder="Digite o valor da meta (ex.: 1000)"
+                  className="p-3 rounded-lg"
+                  aria-label="Valor da meta"
+                />
+              </div>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-4">
+              <div
+                className="bg-cyan-500 h-4 rounded-full"
+                style={{ width: `${Math.min(goalProgress, 100)}%` }}
+              ></div>
+            </div>
+            <p className="mt-2 text-sm text-gray-300">
+              Progresso: {goalProgress.toFixed(1)}% ({formatCurrency(goal.type === 'monthly' ? monthlyIncome : annualIncome)} de {formatCurrency(goal.amount)})
+            </p>
+            <p className="mt-2 text-gray-300">
+              <strong>Curiosidade:</strong> Sua renda mensal pode comprar ~{Math.floor(monthlyIncome / (15 * exchangeRates[currency]))} cafés!
+            </p>
+          </PortfolioCard>
+
+          <PortfolioCard title="Saúde do Portfólio">
+            <p className="text-lg text-gray-300">Pontuação de Diversificação: {portfolioHealth}%</p>
+            <p className="text-sm text-gray-400">
+              {portfolioHealth > 80 ? 'Excelente diversificação!' : portfolioHealth > 50 ? 'Boa diversificação.' : 'Considere diversificar mais.'}
+            </p>
+          </PortfolioCard>
+
+          <PortfolioCard title="Distribuição do Portfólio">
+            <Recharts.ResponsiveContainer width="100%" height={400}>
+              <Recharts.PieChart>
+                <Recharts.Pie
+                  data={portfolioChartData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={150}
+                  fill="#00e5ff"
+                  label={({ name, value }) => `${name}: ${formatCurrency(value)}`}
+                >
+                  {portfolioChartData.map((entry, index) => (
+                    <Recharts.Cell key={`cell-${index}`} fill={['#00e5ff', '#ff2e63', '#ffd60a', '#8338ec', '#06d6a0', '#f72585'][index % 6]} />
+                  ))}
+                </Recharts.Pie>
+                <Recharts.Tooltip formatter={(value) => formatCurrency(value)} />
+                <Recharts.Legend />
+              </Recharts.PieChart>
+            </Recharts.ResponsiveContainer>
+          </PortfolioCard>
+
+          <PortfolioCard title="Alocação por Tipo de Ativo">
+            <Recharts.ResponsiveContainer width="100%" height={400}>
+              <Recharts.BarChart data={assetTypeChartData}>
+                <Recharts.XAxis dataKey="name" stroke="#e0e0e0" />
+                <Recharts.YAxis stroke="#e0e0e0" />
+                <Recharts.Tooltip formatter={(value) => formatCurrency(value)} />
+                <Recharts.Bar dataKey="value" fill="#00e5ff" />
+              </Recharts.BarChart>
+            </Recharts.ResponsiveContainer>
+          </PortfolioCard>
+
+          <PortfolioCard title="Previsão de Renda">
+            <div className="flex gap-4 mb-4">
+              <div className="flex flex-col w-1/2">
+                <label htmlFor="forecastYears" className="mb-1">Anos de Previsão</label>
+                <input
+                  id="forecastYears"
+                  name="forecastYears"
+                  type="number"
+                  step="1"
+                  value={forecastYears}
+                  onChange={handleForecastChange}
+                  placeholder="Digite os anos (ex.: 5)"
+                  className="p-3 rounded-lg"
+                  aria-label="Anos de previsão"
+                />
+              </div>
+              <div className="flex flex-col w-1/2">
+                <label htmlFor="growthRate" className="mb-1">Taxa de Crescimento (%)</label>
+                <input
+                  id="growthRate"
+                  name="growthRate"
+                  type="number"
+                  step="0.1"
+                  value={growthRate}
+                  onChange={handleForecastChange}
+                  placeholder="Digite a taxa (ex.: 5)"
+                  className="p-3 rounded-lg"
+                  aria-label="Taxa de crescimento anual"
+                />
+              </div>
+            </div>
+            <p className="text-lg text-gray-300">Renda anual projetada em {forecastYears} anos:</p>
+            <p className="text-3xl font-bold text-cyan-400">{formatCurrency(forecastedIncome)}</p>
+          </PortfolioCard>
+
+          <PortfolioCard title="Detalhes dos Investimentos">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-800">
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('assetType')}>
+                      Tipo {sortConfig.key === 'assetType' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('ticker')}>
+                      Ticker {sortConfig.key === 'ticker' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('units')}>
+                      Quantidade {sortConfig.key === 'units' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('unitPrice')}>
+                      Preço Unitário {sortConfig.key === 'unitPrice' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('annualYield')}>
+                      Rend. Anual {sortConfig.key === 'annualYield' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('totalValue')}>
+                      Valor Total {sortConfig.key === 'totalValue' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400" onClick={() => handleSort('monthlyIncome')}>
+                      Renda Mensal {sortConfig.key === 'monthlyIncome' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="p-3 text-left text-cyan-400">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((item, index) => (
+                    <tr key={index} className="hover:bg-gray-700">
+                      <td className="p-3">{item.assetType.toUpperCase()}</td>
+                      <td className="p-3">{item.ticker}</td>
+                      <td className="p-3">{item.units.toFixed(4)}</td>
+                      <td className="p-3">{formatCurrency(item.unitPrice)}</td>
+                      <td className="p-3">{(item.annualYield).toFixed(4)}%</td>
+                      <td className="p-3">{formatCurrency(item.units * item.unitPrice)}</td>
+                      <td className="p-3">{formatCurrency(item.units * item.unitPrice * (item.annualYield / 100 / 12))}</td>
+                      <td className="p-3 flex gap-2">
+                        <button
+                          onClick={() => handleEdit(index)}
+                          className="px-3 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"
+                          aria-label={`Editar investimento ${item.ticker}`}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => handleDelete(index)}
+                          className="px-3 py-1 btn-secondary rounded-lg"
+                          aria-label={`Excluir investimento ${item.ticker}`}
+                        >
+                          Excluir
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </PortfolioCard>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
